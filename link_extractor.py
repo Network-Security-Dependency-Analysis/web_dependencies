@@ -14,30 +14,51 @@ import pprint
 import sys
 from urllib.parse import urlparse
 from lxml import html
+import argparse
+from anytree import Node, RenderTree
+
+def main(args):
+	# Dictionary of levels of recursion mapped to URLs for that level
+	# currentRecurse = 0
+	baseURL = urlparse(args.url).netloc
+	root = Node(baseURL)
+
+	addChildren(root)
+
+	for pre, fill, node in RenderTree(root):
+		print("%s%s" % (pre, node.name))
 
 
-if len(sys.argv) != 2:
-	print("Usage: link_extractor [url]")
-	exit()
+def addChildren(node):
+	page = getPage(node.name)
 
-try:
-	url = sys.argv[1]
-	page = requests.get(url)
-	if page.ok != True:
-		print("Error reading page: ")
-		print(page)
-		exit()
-except:
-	print("Error sending request")
-	exit()
+	for link in page.iterlinks():
+		# Get URL of the HTML link element
+		l = urlparse(link[2])
 
-html_tree = html.fromstring(page.content)
-base_url = urlparse(url)
+		# Add the URL to the dict iff it is not empty or part of the base URL
+		if l.netloc != '' and l.netloc != node.name:
+			Node(l.netloc, parent=node)
 
-for link in html_tree.iterlinks():
-	# TODO: if the given URL is 'google.com', this will print URLs
-	# 	like 'maps.google.com'. This might not be our desired behavior.
-	l = urlparse(link[2])
-	if l.netloc != '' and l.netloc != base_url.netloc:
-		pprint.pprint(l)
 
+def getPage(url):
+	try:
+		page = requests.get(args.url)
+		if page.ok != True:
+			print("Error reading page: ", file=sys.stderr)
+			print(page, file=sys.stderr)
+			return None
+	except:
+		print("Error sending request", file=sys.stderr)
+		return None
+
+	html_tree = html.fromstring(page.content)
+	return html_tree
+
+
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser(description="Crawl webpages for 3rd party links.")
+	# parser.add_argument("-r", dest="recurse")
+	parser.add_argument("url", type=str, help="The URL to scan")
+	args = parser.parse_args()
+	main(args)
