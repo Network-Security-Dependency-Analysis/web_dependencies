@@ -68,6 +68,7 @@ def addChildren(node):
 		if netloc != '' and netloc != node.name:
 			find = search.findall(node, filter_=lambda n: n.name == netloc)
 			if find == ():
+				# Setting the parent here automatically updates the tree!
 				Node(netloc, parent=node)
 
 
