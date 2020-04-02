@@ -15,6 +15,7 @@ import os
 import hashlib
 import ssl
 from concurrent.futures import ThreadPoolExecutor
+import argparse
 
 TOP_URLS = {}
 
@@ -262,13 +263,12 @@ def analyze_url(url, top_dict):
 
 # ==================================================================================================
 if __name__ == "__main__":
-    # TODO add in argparse to take in the input file and output directory from the command line ...
-    #  make them optional, with default values of some kind
+    parser = argparse.ArgumentParser(description="Crawl webpages for 3rd party links.")
+    parser.add_argument("-i", dest="input_file", type=str, help="File containing list of top-level domains to scan", default="./input.txt")
+    parser.add_argument("-o", dest="output_dir", type=str, help="Directory to output JSON results", default="./data/")
+    args = parser.parse_args()
 
-    input_path = "input.txt"
-    output_dir = "/root/Documents/Network_Security/web_dependencies/data"
-
-    parse_input(input_path)
+    parse_input(args.input_file)
 
     threads = []
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -281,4 +281,4 @@ if __name__ == "__main__":
         print(f.result())
 
     # TODO have this function create one website's JSON file and thread this as well
-    output_to_json(output_dir)
+    output_to_json(args.output_dir)
