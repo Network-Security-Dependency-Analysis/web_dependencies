@@ -14,6 +14,7 @@ import json
 import os
 import hashlib
 import ssl
+import argparse
 
 TOP_URLS = {}
 
@@ -186,13 +187,12 @@ def analyze_url(url, top_dict):
 
 # ==================================================================================================
 if __name__ == "__main__":
-    # TODO add in argparse to take in the input file and output directory from the command line ...
-    #  make them optional, with default values of some kind
+    parser = argparse.ArgumentParser(description="Crawl webpages for 3rd party links.")
+    parser.add_argument("-i", dest="input_file", type=str, help="File containing list of top-level domains to scan", default="./input.txt")
+    parser.add_argument("-o", dest="output_dir", type=str, help="Directory to output JSON results", default="./data/")
+    args = parser.parse_args()
 
-    input_path = "input.txt"
-    output_dir = "/root/Documents/Network_Security/web_dependencies/data"
-
-    parse_input(input_path)
+    parse_input(args.input_file)
 
     for top_url in TOP_URLS.keys():
         print("Analyzing webpage: " + top_url)
@@ -200,4 +200,4 @@ if __name__ == "__main__":
         # soup = url_to_soup(top_url)
         # get_links(soup, TOP_URLS[top_url])
 
-    output_to_json(output_dir)
+    output_to_json(args.output_dir)
