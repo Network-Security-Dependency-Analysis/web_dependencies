@@ -3,6 +3,8 @@
 REFERENCES:
     https://stackoverflow.com/questions/31666584/beutifulsoup-to-extract-all-external-resources-from-html
 '''
+from http.client import InvalidURL
+from urllib.error import HTTPError
 
 from bs4 import BeautifulSoup
 import urllib.request
@@ -11,11 +13,15 @@ from urllib.parse import urljoin
 import json
 import os
 import hashlib
+import ssl
 
 TOP_URLS = {}
 
 
 # ==================================================================================================
+# Takes in an input file path, where the input file is a list of newline separated top level URLs
+# to crawl. Starts filling out the TOP_URLS global dictionary.
+
 def parse_input(input_file):
     with open(input_file, 'r') as f:
         top_urls = f.readlines()
@@ -38,7 +44,8 @@ def output_to_json(output_directory):
 
         json_file = os.path.join(output_directory, str(hex_dig) + ".json")
 
-        # don't actually want to output the internal URLs, and JSON doesn't like sets
+        # don't output the internal URLs as they no longer serve a purpose, plus JSON
+        # doesn't like Python sets (it yells)
         del TOP_URLS[url]["internal_urls"]
 
         with open(json_file, 'w+') as fp:
@@ -49,7 +56,18 @@ def output_to_json(output_directory):
 # Takes in a URL string and outputs a Beautiful Soup object for further parsing
 
 def url_to_soup(url):
-    page_source = urllib.request.urlopen(url)
+    try:
+        # WARNING THIS MIGHT BE SOME KIND OF HORRIBLE SECURITY FLAW
+        ctx_no_secure = ssl.create_default_context()
+        ctx_no_secure.set_ciphers('HIGH:!DH:!aNULL')
+        ctx_no_secure.check_hostname = False
+        ctx_no_secure.verify_mode = ssl.CERT_NONE
+
+        page_source = urllib.request.urlopen(url, context=ctx_no_secure)
+    except (HTTPError, InvalidURL) as e:
+        print("ERROR: " + str(e))
+        print("URL: " + url)
+        return None
     return BeautifulSoup(page_source, "lxml")
 
 
@@ -105,9 +123,8 @@ def append_external_resource(top_dict, resource_url, resource_type):
 
 
 # ==================================================================================================
-# Finds all URLs of a certain "tag" type in the HTML document. Determines if each URL is internal or
-# external. Determines whether resource is internal or external and commences further processing
-# accordingly
+# Finds all URLs of a certain "tag" type in the HTML document. Determines whether resource is
+# internal or external and commences further processing accordingly
 
 def parse_resources(tag, attr, soup, top_dict):
     for t in soup.findAll(tag):
@@ -123,12 +140,14 @@ def parse_resources(tag, attr, soup, top_dict):
                         resource_url = resource_url[1:]
 
                     resource_url = top_dict["top_url"] + resource_url
-                    print(resource_url)
+                    analyze_url(resource_url, top_dict)
             # --------------------------------------------------------------------------------------
-            # TODO Internal, Absolute Link
+            # Internal, Absolute Link
+            elif not is_exernal_resource(top_dict["top_url"], resource_url):
+                analyze_url(resource_url, top_dict)
             # --------------------------------------------------------------------------------------
             # External Resource
-            elif is_exernal_resource(top_dict["top_url"], resource_url):
+            else:
                 append_external_resource(top_dict, resource_url, tag)
             # --------------------------------------------------------------------------------------
         except KeyError:
@@ -153,6 +172,19 @@ def get_links(soup, top_dict):
 
 
 # ==================================================================================================
+# Because try as I might, I cannot escape the red tide of recursion
+
+def analyze_url(url, top_dict):
+    if url not in top_dict["internal_urls"]:
+        top_dict["internal_urls"].add(url)
+        if not url.endswith(".pdf") and not url.endswith(".pptx"):
+            soup = url_to_soup(url)
+            if soup:
+                print("New Valid Internal URL: " + url)
+                get_links(soup, top_dict)
+
+
+# ==================================================================================================
 if __name__ == "__main__":
     # TODO add in argparse to take in the input file and output directory from the command line ...
     #  make them optional, with default values of some kind
@@ -164,7 +196,8 @@ if __name__ == "__main__":
 
     for top_url in TOP_URLS.keys():
         print("Analyzing webpage: " + top_url)
-        soup = url_to_soup(top_url)
-        get_links(soup, TOP_URLS[top_url])
+        analyze_url(top_url, TOP_URLS[top_url])
+        # soup = url_to_soup(top_url)
+        # get_links(soup, TOP_URLS[top_url])
 
     output_to_json(output_dir)
