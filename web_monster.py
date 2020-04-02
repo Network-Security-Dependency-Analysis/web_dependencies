@@ -49,8 +49,9 @@ def parse_input(input_file):
     for url in top_urls:
         # check that URL is not an empty string
         if url:
-            top_url_dict = {"top_url": url, "external_resources": {}, "external_domains": {},
-                            "internal_urls": set(), "error_urls": set()}
+            domain = url_to_domain(url)
+            top_url_dict = {"top_url": url, "top_domain": domain, "external_resources": {},
+                            "external_domains": {}, "internal_urls": set(), "error_urls": set()}
 
             TOP_URLS[url] = top_url_dict
 
@@ -189,12 +190,19 @@ def append_external_resource(top_dict, resource_url, resource_type):
 
 
 # ==================================================================================================
-def append_external_domain(top_dict, resource_url, resource_type):
-    domain = urlparse(resource_url).netloc
+def url_to_domain(url):
+    domain = urlparse(url).netloc
     remove_substrings = ["https://", "http://"]
 
     for sub in remove_substrings:
         domain = domain.replace(sub, "")
+
+    return domain
+
+
+# ==================================================================================================
+def append_external_domain(top_dict, resource_url, resource_type):
+    domain = url_to_domain(resource_url)
 
     domain_dict = top_dict["external_domains"].get(domain, None)
 
