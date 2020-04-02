@@ -101,11 +101,15 @@ def remove_www(url):
 
 def add_trailing_slash(url):
     url_chunks = url.split('/')
+    url_chunks = [i for i in url_chunks if i]
+    if len(url_chunks) == 0:
+        return url
+
     last_chunk = url_chunks[-1]
     chunks_len = len(url_chunks)
 
     if not url.endswith('/'):
-        if ("." not in last_chunk or chunks_len == 3) and len(last_chunk) > 1:
+        if ("." not in last_chunk or (url.startswith("http") and chunks_len == 2)) and len(last_chunk) > 1:
             url = url + '/'
 
     return url
@@ -173,6 +177,22 @@ def append_external_resource(top_dict, resource_url, resource_type):
 
 
 # ==================================================================================================
+def dont_traverse_higher_urls(resource_url, top_dict):
+    top_url = top_dict["top_url"]
+
+    # ignore difference between http and https
+    base_urls = set()
+    base_urls.add(top_url)
+    if top_url.startswith("https:"):
+        base_urls.add(top_url.replace("https:", "http:"))
+    elif top_url.startswith("http:"):
+        base_urls.add(top_url.replace("http:", "https:"))
+
+    if resource_url.startswith(tuple(base_urls)):
+        analyze_url(resource_url, top_dict)
+
+
+# ==================================================================================================
 # Finds all URLs of a certain "tag" type in the HTML document. Determines whether resource is
 # internal or external and commences further processing accordingly
 
@@ -191,7 +211,7 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
             elif tag == "a":
                 # Full URL
                 if "http" in resource_url:
-                    analyze_url(resource_url, top_dict)
+                    dont_traverse_higher_urls(resource_url, top_dict)
 
                 # Partial URL
                 if is_valid_relative_resource(resource_url):
@@ -234,7 +254,7 @@ def is_new_valid_internal_url(url, top_dict):
     if url not in top_dict["internal_urls"] and url not in top_dict["error_urls"]:
         # don't parse huge documents that aren't even webpages
         # TODO may have to add more extensions to this pending testing
-        ignore_extensions = (".pdf", ".pptx")
+        ignore_extensions = (".pdf", ".pptx", ".xlsx", ".ics")
         if not url.endswith(ignore_extensions):
             return True
 
@@ -251,6 +271,7 @@ def analyze_url(url, top_dict):
 
         if actual_url and page_source:
             # --------------------------------------------------------------------------------------
+            actual_url = cleanup_url(actual_url)
             # Handle rare case where URL re-directed
             # TODO probably split this out into handle_redirect function and add link to external
             #  dict if it is actually external
