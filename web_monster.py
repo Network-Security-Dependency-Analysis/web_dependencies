@@ -3,19 +3,23 @@
 REFERENCES:
     https://stackoverflow.com/questions/31666584/beutifulsoup-to-extract-all-external-resources-from-html
 '''
-from concurrent import futures
-from http.client import InvalidURL
-from urllib.error import HTTPError
 
-from bs4 import BeautifulSoup
-import urllib.request
-from urllib.parse import urlparse
 import json
 import os
 import hashlib
 import ssl
-from concurrent.futures import ThreadPoolExecutor
 import argparse
+
+# URL / HTML Parsing Imports
+from urllib.error import HTTPError
+import urllib.request
+from urllib.parse import urlparse
+from bs4 import BeautifulSoup
+from http.client import InvalidURL
+
+# Threading / Concurrency Imports
+from concurrent import futures
+from concurrent.futures import ThreadPoolExecutor
 
 TOP_URLS = {}
 
@@ -28,8 +32,10 @@ def parse_input(input_file):
     with open(input_file, 'r') as f:
         top_urls = f.readlines()
 
+    # get rid of newlines, etc
     top_urls = [x.strip() for x in top_urls]
     for url in top_urls:
+        # check that URL is not an empty string
         if url:
             top_url_dict = {"top_url": url, "external_urls": {}, "internal_urls": set(),
                             "error_urls": set()}
@@ -58,15 +64,19 @@ def output_to_json(output_directory):
 
 
 # ==================================================================================================
-# Takes in a URL string and outputs a Beautiful Soup object for further parsing
+# Takes in a URL string and returns the actual URL the page was located at (to handle re-directs)
+# and the page source itself
 
 def get_webpage_source(url):
     try:
-        # WARNING THIS MIGHT BE SOME KIND OF HORRIBLE SECURITY FLAW
+        # ------------------------------------------------------------------------------------------
+        # WARNING THIS MIGHT BE SOME KIND OF HORRIBLE SECURITY FLAW (gets rid of SSL error though)
+
         ctx_no_secure = ssl.create_default_context()
         ctx_no_secure.set_ciphers('HIGH:!DH:!aNULL')
         ctx_no_secure.check_hostname = False
         ctx_no_secure.verify_mode = ssl.CERT_NONE
+        # ------------------------------------------------------------------------------------------
 
         page_source = urllib.request.urlopen(url, context=ctx_no_secure)
         actual_url = page_source.geturl()
@@ -75,6 +85,7 @@ def get_webpage_source(url):
         print("ERROR: " + str(e))
         print("URL: " + url)
         return None, None
+
     return actual_url, page_source
 
 
@@ -101,34 +112,26 @@ def add_trailing_slash(url):
 
 
 # ==================================================================================================
-# Returns true if the resource URL is a relative URL, false if its an absolute URL
+# Wrapper function to remove WWW and add trailing slash, for URL uniformity
+
+def cleanup_url(url):
+    url = remove_www(url)
+    return add_trailing_slash(url)
+
+
+# ==================================================================================================
+# Returns true if the resource URL is a valid relative URL, false otherwise
 
 def is_valid_relative_resource(resource_url):
-    if "http" in resource_url or ".." in resource_url or "mailto" in resource_url:
+    # avoid traversing backwards or trying to parse email links
+    if ".." in resource_url or "mailto" in resource_url:
         return False
 
+    # avoid weird symbols like # that just go back to the site's homepage
     if len(resource_url) < 2:
         return False
 
     return not bool(urlparse(resource_url).netloc)
-
-
-# ==================================================================================================
-def is_valid_internal_resource(url, resource_url):
-    if "http" not in resource_url:
-        return False
-
-    # Get base URL of top level URL
-    top_url_base = remove_www(urlparse(url).netloc)
-
-    # Get base URL of resource URL
-    resource_url_base = remove_www(urlparse(resource_url).netloc)
-
-    # Check if base URLs match
-    if top_url_base == resource_url_base:
-        return True
-    else:
-        return False
 
 
 # ==================================================================================================
@@ -176,29 +179,31 @@ def append_external_resource(top_dict, resource_url, resource_type):
 def parse_resources(tag, attr, soup, top_dict, current_url):
     for t in soup.findAll(tag):
         try:
-            resource_url = t[attr]
-            resource_url = add_trailing_slash(resource_url)
-            resource_url = remove_www(resource_url)
+            resource_url = cleanup_url(t[attr])
             # --------------------------------------------------------------------------------------
-            # Internal, Relative Link
-            # TODO handle relative URLs better because I think the way I append the relative url to
-            #  the top level URL right now will break in some cases
-            if tag == "a" and current_url[-1] == "/" and is_valid_relative_resource(resource_url):
-                if resource_url[0] == '/':
-                    resource_url = resource_url[1:]
-                    resource_url = top_dict["top_url"] + resource_url
-                else:
-                    resource_url = current_url + resource_url
+            # External Resource (add to dictionary of external URLs)
 
-                analyze_url(resource_url, top_dict)
-            # --------------------------------------------------------------------------------------
-            # Internal, Absolute Link
-            elif tag == "a" and is_valid_internal_resource(top_dict["top_url"], resource_url):
-                analyze_url(resource_url, top_dict)
-            # --------------------------------------------------------------------------------------
-            # External Resource
-            elif is_valid_external_resource(top_dict["top_url"], resource_url):
+            if is_valid_external_resource(top_dict["top_url"], resource_url):
                 append_external_resource(top_dict, resource_url, tag)
+            # --------------------------------------------------------------------------------------
+            # Internal Link (parse down this page)
+
+            elif tag == "a":
+                # Full URL
+                if "http" in resource_url:
+                    analyze_url(resource_url, top_dict)
+
+                # Partial URL
+                if is_valid_relative_resource(resource_url):
+                    # handle absolute path by combining with top_url
+                    if resource_url[0] == '/':
+                        resource_url = top_dict["top_url"] + resource_url[1:]
+                        analyze_url(resource_url, top_dict)
+
+                    # handle relative path by combining with valid current_url
+                    elif current_url.endswith("/"):
+                        analyze_url(current_url + resource_url, top_dict)
+
             # --------------------------------------------------------------------------------------
         except KeyError:
             pass
@@ -206,17 +211,18 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
 
 # ==================================================================================================
 def get_links(soup, top_dict, current_url):
+    # TODO verify that we have all the external source types we care about
     parse_resources('script', "src", soup, top_dict, current_url)
     parse_resources("iframe", "src", soup, top_dict, current_url)
     parse_resources("video", "src", soup, top_dict, current_url)
     parse_resources("audio", "src", soup, top_dict, current_url)
     parse_resources('img', "src", soup, top_dict, current_url)
     parse_resources("a", "href", soup, top_dict, current_url)
-
+    parse_resources("embed", "src", soup, top_dict, current_url)
+    parse_resources("object", "data", soup, top_dict, current_url)
 
 '''
-    embed_src = find_external_resources("embed", "src", soup)
-    object_data = find_external_resources("object", "data", soup)
+
     soruce_src = find_external_resources("source", "src", soup)
     css_link = find_external_resources("link", "href", soup)
 '''
@@ -227,6 +233,7 @@ def is_new_valid_internal_url(url, top_dict):
     # don't parse things we've already seen before
     if url not in top_dict["internal_urls"] and url not in top_dict["error_urls"]:
         # don't parse huge documents that aren't even webpages
+        # TODO may have to add more extensions to this pending testing
         ignore_extensions = (".pdf", ".pptx")
         if not url.endswith(ignore_extensions):
             return True
@@ -237,28 +244,31 @@ def is_new_valid_internal_url(url, top_dict):
 
 # ==================================================================================================
 def analyze_url(url, top_dict):
-    url = add_trailing_slash(url)
+    url = cleanup_url(url)
 
     if is_new_valid_internal_url(url, top_dict):
         actual_url, page_source = get_webpage_source(url)
 
         if actual_url and page_source:
+            # --------------------------------------------------------------------------------------
             # Handle rare case where URL re-directed
+            # TODO probably split this out into handle_redirect function and add link to external
+            #  dict if it is actually external
             if url != actual_url:
                 if not is_new_valid_internal_url(actual_url, top_dict) or \
                         is_valid_external_resource(actual_url, top_dict["top_url"]):
                     return
 
                 url = actual_url
-
+            # --------------------------------------------------------------------------------------
+            print("New Valid Internal URL: " + url)
             top_dict["internal_urls"].add(url)
             soup = BeautifulSoup(page_source, "lxml")
-            print("New Valid Internal URL: " + url)
             get_links(soup, top_dict, url)
         else:
             top_dict["error_urls"].add(url)
 
-    return url + " THREAD DONE"
+    return "WEBSITE " + url + " THREAD DONE"
 
 
 # ==================================================================================================
@@ -273,7 +283,7 @@ if __name__ == "__main__":
     threads = []
     with ThreadPoolExecutor(max_workers=5) as executor:
         for top_url in TOP_URLS.keys():
-            print("ANALYZING WEBPAGE: " + top_url)
+            print("ANALYZING WEBSITE: " + top_url)
             threads.append(executor.submit(analyze_url, top_url, TOP_URLS[top_url]))
 
     # wait for threads to finish before outputting all JSON files / ending the program
