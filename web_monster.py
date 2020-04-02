@@ -23,6 +23,18 @@ from concurrent.futures import ThreadPoolExecutor
 
 TOP_URLS = {}
 
+# TODO verify that we have all the external source types we care about
+HTML_ELEMENTS = {
+    "a": "href",
+    "script": "src",
+    "iframe": "src",
+    "video": "src",
+    "audio": "src",
+    "img": "src",
+    "embed": "src",
+    "object": "data"
+}
+
 
 # ==================================================================================================
 # Takes in an input file path, where the input file is a list of newline separated top level URLs
@@ -37,8 +49,8 @@ def parse_input(input_file):
     for url in top_urls:
         # check that URL is not an empty string
         if url:
-            top_url_dict = {"top_url": url, "external_urls": {}, "internal_urls": set(),
-                            "error_urls": set()}
+            top_url_dict = {"top_url": url, "external_resources": {}, "external_domains": {},
+                            "internal_urls": set(), "error_urls": set()}
 
             TOP_URLS[url] = top_url_dict
 
@@ -127,7 +139,7 @@ def cleanup_url(url):
 # Returns true if the resource URL is a valid relative URL, false otherwise
 
 def is_valid_relative_resource(resource_url):
-    # avoid traversing backwards or trying to parse email links
+    # avoid traversing backwards (inefficient) or trying to parse email links (breaks stuff)
     if ".." in resource_url or "mailto" in resource_url:
         return False
 
@@ -163,17 +175,41 @@ def is_valid_external_resource(url, resource_url):
 # has been seen before
 
 def append_external_resource(top_dict, resource_url, resource_type):
-    resource_dict = top_dict["external_urls"].get(resource_url, None)
+    resource_dict = top_dict["external_resources"].get(resource_url, None)
 
     # case where we've seen this resource before
     if resource_dict is not None:
-        top_dict["external_urls"][resource_url]["count"] = top_dict["external_urls"][resource_url][
-                                                               "count"] + 1
+        top_dict["external_resources"][resource_url]["count"] = top_dict["external_resources"][
+                                                                    resource_url]["count"] + 1
 
     # case where we have not seen this resource before
     else:
         resource_dict = {"count": 1, "type": resource_type}
-        top_dict["external_urls"][resource_url] = resource_dict
+        top_dict["external_resources"][resource_url] = resource_dict
+
+
+# ==================================================================================================
+def append_external_domain(top_dict, resource_url, resource_type):
+    domain = urlparse(resource_url).netloc
+    remove_substrings = ["https://", "http://"]
+
+    for sub in remove_substrings:
+        domain = domain.replace(sub, "")
+
+    domain_dict = top_dict["external_domains"].get(domain, None)
+
+    # case where we've seen this domain before
+    if domain_dict is not None:
+        top_dict["external_domains"][domain]["total"] += 1
+        top_dict["external_domains"][domain][resource_type] += 1
+
+    else:
+        domain_count_dict = {"total": 1}
+        for tagType in HTML_ELEMENTS.keys():
+            domain_count_dict[tagType] = 0
+
+        domain_count_dict[resource_type] = 1
+        top_dict["external_domains"][domain] = domain_count_dict
 
 
 # ==================================================================================================
@@ -205,6 +241,7 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
 
             if is_valid_external_resource(top_dict["top_url"], resource_url):
                 append_external_resource(top_dict, resource_url, tag)
+                append_external_domain(top_dict, resource_url, tag)
             # --------------------------------------------------------------------------------------
             # Internal Link (parse down this page)
 
@@ -231,21 +268,8 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
 
 # ==================================================================================================
 def get_links(soup, top_dict, current_url):
-    # TODO verify that we have all the external source types we care about
-    parse_resources('script', "src", soup, top_dict, current_url)
-    parse_resources("iframe", "src", soup, top_dict, current_url)
-    parse_resources("video", "src", soup, top_dict, current_url)
-    parse_resources("audio", "src", soup, top_dict, current_url)
-    parse_resources('img', "src", soup, top_dict, current_url)
-    parse_resources("a", "href", soup, top_dict, current_url)
-    parse_resources("embed", "src", soup, top_dict, current_url)
-    parse_resources("object", "data", soup, top_dict, current_url)
-
-'''
-
-    soruce_src = find_external_resources("source", "src", soup)
-    css_link = find_external_resources("link", "href", soup)
-'''
+    for tagType in HTML_ELEMENTS.keys():
+        parse_resources(tagType, HTML_ELEMENTS[tagType], soup, top_dict, current_url)
 
 
 # ==================================================================================================
@@ -282,7 +306,7 @@ def analyze_url(url, top_dict):
 
                 url = actual_url
             # --------------------------------------------------------------------------------------
-            print("New Valid Internal URL: " + url)
+            print("New Internal URL: " + url)
             top_dict["internal_urls"].add(url)
             soup = BeautifulSoup(page_source, "lxml")
             get_links(soup, top_dict, url)
