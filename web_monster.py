@@ -61,21 +61,23 @@ def parse_input(input_file):
 # ==================================================================================================
 # Outputs a JSON file for each website crawled
 
-def output_to_json(output_directory):
-    for url in TOP_URLS.keys():
-        # make filename hash of the top url because linux doesn't like :./ in the file name
-        hash_object = hashlib.sha1(str.encode(TOP_URLS[url]["top_url"]))
-        hex_dig = hash_object.hexdigest()
+def output_to_json(output_directory, url):
+    # make filename hash of the top url because linux doesn't like :./ in the file name
+    hash_object = hashlib.sha1(str.encode(TOP_URLS[url]["top_url"]))
+    hex_dig = hash_object.hexdigest()
 
-        json_file = os.path.join(output_directory, str(hex_dig) + ".json")
+    json_file = os.path.join(output_directory, str(hex_dig) + ".json")
 
-        # don't output the internal URLs and error URLs as they no longer serve a purpose, plus JSON
-        # doesn't like Python sets (it yells)
-        del TOP_URLS[url]["internal_urls"]
-        del TOP_URLS[url]["error_urls"]
+    # don't output the internal URLs and error URLs as they no longer serve a purpose, plus JSON
+    # doesn't like Python sets (it yells)
+    del TOP_URLS[url]["internal_urls"]
+    del TOP_URLS[url]["error_urls"]
 
-        with open(json_file, 'w+') as fp:
-            json.dump(TOP_URLS[url], fp)
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+
+    with open(json_file, 'w') as fp:
+        json.dump(TOP_URLS[url], fp)
 
 
 # ==================================================================================================
@@ -327,7 +329,15 @@ def analyze_url(url, top_dict):
         else:
             top_dict["error_urls"].add(url)
 
-    return "WEBSITE " + url + " THREAD DONE"
+    return url
+
+
+# ==================================================================================================
+def thread_start(url, top_dict, output_dir):
+    u = analyze_url(url, top_dict)
+    output_to_json(output_dir, u)
+    # TODO: Remove data from the dict as we finish. This probably requires locking TOP_URLS.
+    print("WEBSITE " + u + " THREAD DONE")
 
 
 # ==================================================================================================
@@ -343,11 +353,10 @@ if __name__ == "__main__":
     with ThreadPoolExecutor(max_workers=5) as executor:
         for top_url in TOP_URLS.keys():
             print("ANALYZING WEBSITE: " + top_url)
-            threads.append(executor.submit(analyze_url, top_url, TOP_URLS[top_url]))
+            threads.append(executor.submit(thread_start, top_url, TOP_URLS[top_url], args.output_dir))
 
-    # wait for threads to finish before outputting all JSON files / ending the program
+    # wait for threads to finish
     for f in futures.as_completed(threads):
-        print(f.result())
+        pass
 
-    # TODO have this function create one website's JSON file and thread this as well
-    output_to_json(args.output_dir)
+    print("CRAWL COMPLETE!")
