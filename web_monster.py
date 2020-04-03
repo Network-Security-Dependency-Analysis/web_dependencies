@@ -27,6 +27,7 @@ TOP_URLS = {}
 HTML_ELEMENTS = {
     "a": "href",
     "script": "src",
+    "link": "href",
     "iframe": "src",
     "video": "src",
     "audio": "src",
@@ -49,6 +50,7 @@ def parse_input(input_file):
     for url in top_urls:
         # check that URL is not an empty string
         if url:
+            url = cleanup_url(url)
             domain = url_to_domain(url)
             top_url_dict = {"top_url": url, "top_domain": domain, "external_resources": {},
                             "external_domains": {}, "internal_urls": set(), "error_urls": set()}
@@ -122,8 +124,9 @@ def add_trailing_slash(url):
     chunks_len = len(url_chunks)
 
     if not url.endswith('/'):
-        if ("." not in last_chunk or (url.startswith("http") and chunks_len == 2)) and len(last_chunk) > 1:
-            url = url + '/'
+        if ("." not in last_chunk) or (url.startswith("http") and chunks_len == 2):
+            if (len(last_chunk) > 1) and ("#" not in last_chunk):
+                url = url + '/'
 
     return url
 
@@ -180,8 +183,7 @@ def append_external_resource(top_dict, resource_url, resource_type):
 
     # case where we've seen this resource before
     if resource_dict is not None:
-        top_dict["external_resources"][resource_url]["count"] = top_dict["external_resources"][
-                                                                    resource_url]["count"] + 1
+        top_dict["external_resources"][resource_url]["count"] += 1
 
     # case where we have not seen this resource before
     else:
@@ -286,8 +288,8 @@ def is_new_valid_internal_url(url, top_dict):
     if url not in top_dict["internal_urls"] and url not in top_dict["error_urls"]:
         # don't parse huge documents that aren't even webpages
         # TODO may have to add more extensions to this pending testing
-        ignore_extensions = (".pdf", ".pptx", ".xlsx", ".ics")
-        if not url.endswith(ignore_extensions):
+        ignore_extensions = (".pdf", ".pptx", ".xlsx", ".ics", "javascript:;/")
+        if not url.endswith(ignore_extensions) and "tel:" not in url:
             return True
 
     else:
@@ -296,6 +298,9 @@ def is_new_valid_internal_url(url, top_dict):
 
 # ==================================================================================================
 def analyze_url(url, top_dict):
+    if len(top_dict["internal_urls"]) >= 175:
+        return
+
     url = cleanup_url(url)
 
     if is_new_valid_internal_url(url, top_dict):
@@ -310,6 +315,7 @@ def analyze_url(url, top_dict):
             if url != actual_url:
                 if not is_new_valid_internal_url(actual_url, top_dict) or \
                         is_valid_external_resource(actual_url, top_dict["top_url"]):
+                    top_dict["error_urls"].add(url)
                     return
 
                 url = actual_url
