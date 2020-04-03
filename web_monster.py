@@ -9,6 +9,8 @@ import os
 import hashlib
 import ssl
 import argparse
+import dns.resolver
+import web_monster_support
 
 # URL / HTML Parsing Imports
 from urllib.error import HTTPError
@@ -102,13 +104,6 @@ def get_webpage_source(url):
 
 
 # ==================================================================================================
-# WWW screws up our parser, so get rid of it if a URL contains it
-
-def remove_www(url):
-    return url.replace("www.", "")
-
-
-# ==================================================================================================
 # Required for URL matching and being able to append relative URLs
 
 def add_trailing_slash(url):
@@ -125,15 +120,6 @@ def add_trailing_slash(url):
             url = url + '/'
 
     return url
-
-
-# ==================================================================================================
-# Wrapper function to remove WWW and add trailing slash, for URL uniformity
-
-def cleanup_url(url):
-    url = remove_www(url)
-    return add_trailing_slash(url)
-
 
 # ==================================================================================================
 # Returns true if the resource URL is a valid relative URL, false otherwise
@@ -158,10 +144,10 @@ def is_valid_external_resource(url, resource_url):
         return False
 
     # Get base URL of top level URL
-    top_url_base = remove_www(urlparse(url).netloc)
+    top_url_base = web_monster_support.remove_www(urlparse(url).netloc)
 
     # Get base URL of resource URL
-    resource_url_base = remove_www(urlparse(resource_url).netloc)
+    resource_url_base = web_monster_support.remove_www(urlparse(resource_url).netloc)
 
     # Check if base URLs match
     if top_url_base == resource_url_base:
@@ -329,6 +315,23 @@ if __name__ == "__main__":
     with ThreadPoolExecutor(max_workers=5) as executor:
         for top_url in TOP_URLS.keys():
             print("ANALYZING WEBSITE: " + top_url)
+            ip_4_addresses = get_ip_4_addresses(top_url)
+
+            # Initialize ip_addresses
+            TOP_URLS[top_url]["ip_addresses"] = {}
+            for ip_address in ip_4_addresses:
+                # Get latitude and longitude by IP address
+                lat, long = web_monster_support.get_lat_long_of_ip(ip_address)
+                #TODO add provider information
+                # provider = get_provider_of_domain(top_url)
+                provider = ""
+
+                TOP_URLS[top_url]["ip_addresses"][ip_address] = {
+                    "lat": lat,
+                    "long": long,
+                    "provider": provider
+                }
+
             threads.append(executor.submit(analyze_url, top_url, TOP_URLS[top_url]))
 
     # wait for threads to finish before outputting all JSON files / ending the program
