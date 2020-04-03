@@ -53,18 +53,19 @@ def is_valid_relative_resource(resource_url):
 # Required for URL matching and being able to append relative URLs
 
 def add_trailing_slash(url):
-    url_chunks = url.split('/')
-    url_chunks = [i for i in url_chunks if i]
-    if len(url_chunks) == 0:
-        return url
+    if "/" in url:
+        url_chunks = url.split('/')
+        url_chunks = [i for i in url_chunks if i]
+        if len(url_chunks) == 0:
+            return url
 
-    last_chunk = url_chunks[-1]
-    chunks_len = len(url_chunks)
+        last_chunk = url_chunks[-1]
+        chunks_len = len(url_chunks)
 
-    if not url.endswith('/'):
-        if ("." not in last_chunk) or (url.startswith("http") and chunks_len == 2):
-            if (len(last_chunk) > 1) and ("#" not in last_chunk):
-                url = url + '/'
+        if not url.endswith('/'):
+            if ("." not in last_chunk) or (url.startswith("http") and chunks_len == 2):
+                if (len(last_chunk) > 1) and ("#" not in last_chunk):
+                    url = url + '/'
 
     return url
 
@@ -78,12 +79,6 @@ def cleanup_url(url):
 
 
 # ==================================================================================================
-def get_links(soup, top_dict, current_url):
-    for tagType in HTML_ELEMENTS.keys():
-        parse_resources(tagType, HTML_ELEMENTS[tagType], soup, top_dict, current_url)
-
-
-# ==================================================================================================
 # Get latitude and longitude of a given IP address
 
 def get_lat_long_of_ip(ip_address):
@@ -92,19 +87,19 @@ def get_lat_long_of_ip(ip_address):
     if geo_ip_data:
         try:
             location = geo_ip_data.location
+            return location[0], location[1]
         except:
-            location = (None, None)
-    
-    return location[0], location[1]
+            pass
+    return None, None    
 
 
 # ==================================================================================================
 # Get domain name from url
 
 def get_domain_name(url):
-    url = cleanup_url(url)
-    if url.startswith("http"):
-        parsed_url = urlparse(url).netloc
+    parsed_url = cleanup_url(url)
+    if parsed_url.startswith("http"):
+        parsed_url = urlparse(parsed_url).netloc
 
     return parsed_url
 
@@ -114,12 +109,14 @@ def get_domain_name(url):
 def get_domain_provider(url):
     domain = get_domain_name(url)
     # Get domain information with whois
-    domain_info = whois.query(domain)
-    if domain_info:
-        if domain.registrar:
-            return domain_info.registrar
-    return None
-
+    try:
+        domain_info = whois.query(domain)
+        if domain_info:
+            if domain_info.registrar:
+                return domain_info.registrar
+        return None
+    except:
+        return None
 
 # ==================================================================================================
 # Get IPv4 addresses from url
@@ -127,6 +124,10 @@ def get_domain_provider(url):
 def get_ip_4_addresses(url):
     ip_addresses = []
     domain_name = get_domain_name(url)
-    for answer in dns.resolver.query(domain_name, 'A'):
-        ip_addresses.append(str(answer))
+    try:
+        for answer in dns.resolver.query(domain_name, 'A'):
+            ip_addresses.append(str(answer))
+    except:
+        pass
+
     return ip_addresses

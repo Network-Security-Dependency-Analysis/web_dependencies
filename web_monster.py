@@ -147,6 +147,21 @@ def append_external_domain(top_dict, resource_url, resource_type):
             domain_count_dict[tagType] = 0
 
         domain_count_dict[resource_type] = 1
+
+        # Initialize ip_addresses
+        domain_count_dict["ip_addresses"] = {}
+        # Get IPv4 addresses
+        ip_4_addresses = web_monster_support.get_ip_4_addresses(domain)
+        for ip_address in ip_4_addresses:
+            # Get latitude and longitude by IP address
+            lat, long = web_monster_support.get_lat_long_of_ip(ip_address)
+
+            domain_count_dict["ip_addresses"][ip_address] = {
+                "lat": lat,
+                "long": long,
+                "provider": web_monster_support.get_domain_provider(domain)
+            }
+
         top_dict["external_domains"][domain] = domain_count_dict
 
 
@@ -176,7 +191,6 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
             resource_url = web_monster_support.cleanup_url(t[attr])
             # --------------------------------------------------------------------------------------
             # External Resource (add to dictionary of external URLs)
-
             if is_valid_external_resource(top_dict["top_url"], resource_url):
                 append_external_resource(top_dict, resource_url, tag)
                 append_external_domain(top_dict, resource_url, tag)
@@ -216,12 +230,16 @@ def is_new_valid_internal_url(url, top_dict):
     else:
         return False
 
+# ==================================================================================================
+def get_links(soup, top_dict, current_url):
+    for tagType in web_monster_support.HTML_ELEMENTS.keys():
+        parse_resources(tagType, web_monster_support.HTML_ELEMENTS[tagType], soup, top_dict, current_url)
 
 # ==================================================================================================
 def analyze_url(url, top_dict):
     if len(top_dict["internal_urls"]) >= 175:
         return
-
+    
     url = web_monster_support.cleanup_url(url)
 
     if is_new_valid_internal_url(url, top_dict):
@@ -244,7 +262,7 @@ def analyze_url(url, top_dict):
             print("New Internal URL: " + url)
             top_dict["internal_urls"].add(url)
             soup = BeautifulSoup(page_source, "lxml")
-            web_monster_support.get_links(soup, top_dict, url)
+            get_links(soup, top_dict, url)
         else:
             top_dict["error_urls"].add(url)
 
@@ -262,12 +280,12 @@ def thread_start(url, top_dict, output_dir):
     for ip_address in ip_4_addresses:
         # Get latitude and longitude by IP address
         lat, long = web_monster_support.get_lat_long_of_ip(ip_address)
-
         top_dict["ip_addresses"][ip_address] = {
             "lat": lat,
             "long": long,
             "provider": web_monster_support.get_domain_provider(url)
         }
+
     u = analyze_url(url, top_dict)
     output_to_json(output_dir, u)
     # TODO: Remove data from the dict as we finish. This probably requires locking TOP_URLS.
