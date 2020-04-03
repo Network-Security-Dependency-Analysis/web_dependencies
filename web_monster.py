@@ -9,7 +9,6 @@ import os
 import hashlib
 import ssl
 import argparse
-import dns.resolver
 import web_monster_support
 
 # URL / HTML Parsing Imports
@@ -25,19 +24,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 TOP_URLS = {}
 
-# TODO verify that we have all the external source types we care about
-HTML_ELEMENTS = {
-    "a": "href",
-    "script": "src",
-    "iframe": "src",
-    "video": "src",
-    "audio": "src",
-    "img": "src",
-    "embed": "src",
-    "object": "data"
-}
-
-
 # ==================================================================================================
 # Takes in an input file path, where the input file is a list of newline separated top level URLs
 # to crawl. Starts filling out the TOP_URLS global dictionary.
@@ -51,8 +37,10 @@ def parse_input(input_file):
     for url in top_urls:
         # check that URL is not an empty string
         if url:
-            top_url_dict = {"top_url": url, "external_resources": {}, "external_domains": {},
-                            "internal_urls": set(), "error_urls": set()}
+            url = web_monster_support.cleanup_url(url)
+            domain = web_monster_support.url_to_domain(url)
+            top_url_dict = {"top_url": url, "top_domain": domain, "external_resources": {},
+                            "external_domains": {}, "internal_urls": set(), "error_urls": set()}
 
             TOP_URLS[url] = top_url_dict
 
@@ -60,21 +48,23 @@ def parse_input(input_file):
 # ==================================================================================================
 # Outputs a JSON file for each website crawled
 
-def output_to_json(output_directory):
-    for url in TOP_URLS.keys():
-        # make filename hash of the top url because linux doesn't like :./ in the file name
-        hash_object = hashlib.sha1(str.encode(TOP_URLS[url]["top_url"]))
-        hex_dig = hash_object.hexdigest()
+def output_to_json(output_directory, url):
+    # make filename hash of the top url because linux doesn't like :./ in the file name
+    hash_object = hashlib.sha1(str.encode(TOP_URLS[url]["top_url"]))
+    hex_dig = hash_object.hexdigest()
 
-        json_file = os.path.join(output_directory, str(hex_dig) + ".json")
+    json_file = os.path.join(output_directory, str(hex_dig) + ".json")
 
-        # don't output the internal URLs and error URLs as they no longer serve a purpose, plus JSON
-        # doesn't like Python sets (it yells)
-        del TOP_URLS[url]["internal_urls"]
-        del TOP_URLS[url]["error_urls"]
+    # don't output the internal URLs and error URLs as they no longer serve a purpose, plus JSON
+    # doesn't like Python sets (it yells)
+    del TOP_URLS[url]["internal_urls"]
+    del TOP_URLS[url]["error_urls"]
 
-        with open(json_file, 'w+') as fp:
-            json.dump(TOP_URLS[url], fp)
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+
+    with open(json_file, 'w') as fp:
+        json.dump(TOP_URLS[url], fp)
 
 
 # ==================================================================================================
@@ -101,39 +91,6 @@ def get_webpage_source(url):
         return None, None
 
     return actual_url, page_source
-
-
-# ==================================================================================================
-# Required for URL matching and being able to append relative URLs
-
-def add_trailing_slash(url):
-    url_chunks = url.split('/')
-    url_chunks = [i for i in url_chunks if i]
-    if len(url_chunks) == 0:
-        return url
-
-    last_chunk = url_chunks[-1]
-    chunks_len = len(url_chunks)
-
-    if not url.endswith('/'):
-        if ("." not in last_chunk or (url.startswith("http") and chunks_len == 2)) and len(last_chunk) > 1:
-            url = url + '/'
-
-    return url
-
-# ==================================================================================================
-# Returns true if the resource URL is a valid relative URL, false otherwise
-
-def is_valid_relative_resource(resource_url):
-    # avoid traversing backwards (inefficient) or trying to parse email links (breaks stuff)
-    if ".." in resource_url or "mailto" in resource_url:
-        return False
-
-    # avoid weird symbols like # that just go back to the site's homepage
-    if len(resource_url) < 2:
-        return False
-
-    return not bool(urlparse(resource_url).netloc)
 
 
 # ==================================================================================================
@@ -165,8 +122,7 @@ def append_external_resource(top_dict, resource_url, resource_type):
 
     # case where we've seen this resource before
     if resource_dict is not None:
-        top_dict["external_resources"][resource_url]["count"] = top_dict["external_resources"][
-                                                                    resource_url]["count"] + 1
+        top_dict["external_resources"][resource_url]["count"] += 1
 
     # case where we have not seen this resource before
     else:
@@ -176,11 +132,7 @@ def append_external_resource(top_dict, resource_url, resource_type):
 
 # ==================================================================================================
 def append_external_domain(top_dict, resource_url, resource_type):
-    domain = urlparse(resource_url).netloc
-    remove_substrings = ["https://", "http://"]
-
-    for sub in remove_substrings:
-        domain = domain.replace(sub, "")
+    domain = web_monster_support.url_to_domain(resource_url)
 
     domain_dict = top_dict["external_domains"].get(domain, None)
 
@@ -191,7 +143,7 @@ def append_external_domain(top_dict, resource_url, resource_type):
 
     else:
         domain_count_dict = {"total": 1}
-        for tagType in HTML_ELEMENTS.keys():
+        for tagType in web_monster_support.HTML_ELEMENTS.keys():
             domain_count_dict[tagType] = 0
 
         domain_count_dict[resource_type] = 1
@@ -221,7 +173,7 @@ def dont_traverse_higher_urls(resource_url, top_dict):
 def parse_resources(tag, attr, soup, top_dict, current_url):
     for t in soup.findAll(tag):
         try:
-            resource_url = cleanup_url(t[attr])
+            resource_url = web_monster_support.cleanup_url(t[attr])
             # --------------------------------------------------------------------------------------
             # External Resource (add to dictionary of external URLs)
 
@@ -237,7 +189,7 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
                     dont_traverse_higher_urls(resource_url, top_dict)
 
                 # Partial URL
-                if is_valid_relative_resource(resource_url):
+                if web_monster_support.is_valid_relative_resource(resource_url):
                     # handle absolute path by combining with top_url
                     if resource_url[0] == '/':
                         resource_url = top_dict["top_url"] + resource_url[1:]
@@ -251,21 +203,14 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
         except KeyError:
             pass
 
-
-# ==================================================================================================
-def get_links(soup, top_dict, current_url):
-    for tagType in HTML_ELEMENTS.keys():
-        parse_resources(tagType, HTML_ELEMENTS[tagType], soup, top_dict, current_url)
-
-
 # ==================================================================================================
 def is_new_valid_internal_url(url, top_dict):
     # don't parse things we've already seen before
     if url not in top_dict["internal_urls"] and url not in top_dict["error_urls"]:
         # don't parse huge documents that aren't even webpages
         # TODO may have to add more extensions to this pending testing
-        ignore_extensions = (".pdf", ".pptx", ".xlsx", ".ics")
-        if not url.endswith(ignore_extensions):
+        ignore_extensions = (".pdf", ".pptx", ".xlsx", ".ics", "javascript:;/")
+        if not url.endswith(ignore_extensions) and "tel:" not in url:
             return True
 
     else:
@@ -274,20 +219,24 @@ def is_new_valid_internal_url(url, top_dict):
 
 # ==================================================================================================
 def analyze_url(url, top_dict):
-    url = cleanup_url(url)
+    if len(top_dict["internal_urls"]) >= 175:
+        return
+
+    url = web_monster_support.cleanup_url(url)
 
     if is_new_valid_internal_url(url, top_dict):
         actual_url, page_source = get_webpage_source(url)
 
         if actual_url and page_source:
             # --------------------------------------------------------------------------------------
-            actual_url = cleanup_url(actual_url)
+            actual_url = web_monster_support.cleanup_url(actual_url)
             # Handle rare case where URL re-directed
             # TODO probably split this out into handle_redirect function and add link to external
             #  dict if it is actually external
             if url != actual_url:
                 if not is_new_valid_internal_url(actual_url, top_dict) or \
                         is_valid_external_resource(actual_url, top_dict["top_url"]):
+                    top_dict["error_urls"].add(url)
                     return
 
                 url = actual_url
@@ -295,11 +244,34 @@ def analyze_url(url, top_dict):
             print("New Internal URL: " + url)
             top_dict["internal_urls"].add(url)
             soup = BeautifulSoup(page_source, "lxml")
-            get_links(soup, top_dict, url)
+            web_monster_support.get_links(soup, top_dict, url)
         else:
             top_dict["error_urls"].add(url)
 
-    return "WEBSITE " + url + " THREAD DONE"
+    return url
+
+
+# ==================================================================================================
+def thread_start(url, top_dict, output_dir):
+
+    # Get IPv4 addresses
+    ip_4_addresses = web_monster_support.get_ip_4_addresses(url)
+
+    # Initialize ip_addresses
+    top_dict["ip_addresses"] = {}
+    for ip_address in ip_4_addresses:
+        # Get latitude and longitude by IP address
+        lat, long = web_monster_support.get_lat_long_of_ip(ip_address)
+
+        top_dict["ip_addresses"][ip_address] = {
+            "lat": lat,
+            "long": long,
+            "provider": web_monster_support.get_domain_provider(url)
+        }
+    u = analyze_url(url, top_dict)
+    output_to_json(output_dir, u)
+    # TODO: Remove data from the dict as we finish. This probably requires locking TOP_URLS.
+    print("WEBSITE " + u + " THREAD DONE")
 
 
 # ==================================================================================================
@@ -315,28 +287,10 @@ if __name__ == "__main__":
     with ThreadPoolExecutor(max_workers=5) as executor:
         for top_url in TOP_URLS.keys():
             print("ANALYZING WEBSITE: " + top_url)
-            ip_4_addresses = get_ip_4_addresses(top_url)
+            threads.append(executor.submit(thread_start, top_url, TOP_URLS[top_url], args.output_dir))
 
-            # Initialize ip_addresses
-            TOP_URLS[top_url]["ip_addresses"] = {}
-            for ip_address in ip_4_addresses:
-                # Get latitude and longitude by IP address
-                lat, long = web_monster_support.get_lat_long_of_ip(ip_address)
-                #TODO add provider information
-                # provider = get_provider_of_domain(top_url)
-                provider = ""
-
-                TOP_URLS[top_url]["ip_addresses"][ip_address] = {
-                    "lat": lat,
-                    "long": long,
-                    "provider": provider
-                }
-
-            threads.append(executor.submit(analyze_url, top_url, TOP_URLS[top_url]))
-
-    # wait for threads to finish before outputting all JSON files / ending the program
+    # wait for threads to finish
     for f in futures.as_completed(threads):
-        print(f.result())
+        pass
 
-    # TODO have this function create one website's JSON file and thread this as well
-    output_to_json(args.output_dir)
+    print("CRAWL COMPLETE!")
