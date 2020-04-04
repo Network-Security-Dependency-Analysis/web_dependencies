@@ -48,8 +48,9 @@ def add_trailing_slash(url):
         chunks_len = len(url_chunks)
 
         if not url.endswith('/'):
-            if ("." not in last_chunk) or (url.startswith("http") and chunks_len == 2):
-                if (len(last_chunk) > 1) and ("#" not in last_chunk):
+            if ("." not in last_chunk) or (url.startswith("http") and
+                                                                 chunks_len == 2):
+                if (len(last_chunk) > 1) and ("#" not in last_chunk) and ("page=" not in last_chunk):
                     url = url + '/'
 
     return url
@@ -114,3 +115,12 @@ def is_valid_relative_resource(resource_url):
 
 
 # ==================================================================================================
+# Check for substrings... returns true if any ONE of them are in the string
+
+def contains_any_substring(base_string, substrings):
+    for substring in substrings:
+        if substring in base_string:
+            return True
+
+    else:
+        return False

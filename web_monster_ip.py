@@ -28,7 +28,7 @@ def get_ip_geo(ip_address):
         geo_ip_data = globals.GEO_LIB.city(ip_address)
         if geo_ip_data:
             lat = geo_ip_data.location.latitude
-            long = geo_ip_data.location.latitude
+            long = geo_ip_data.location.longitude
             return lat, long
 
     except Exception as e:
@@ -39,6 +39,7 @@ def get_ip_geo(ip_address):
 
 # ==================================================================================================
 # Get the Autonomous System information for the IP address
+
 def get_ip_asn(ip_address):
     try:
         asn_ip_data = globals.ASN_LIB.asn(ip_address)
@@ -53,6 +54,8 @@ def get_ip_asn(ip_address):
 
 
 # ==================================================================================================
+# Set the location info and IP address info for a given IP in the dictionary
+
 def set_ip4_info(domain, top_dict):
     ip_4_addresses = get_ip4_addrs(domain)
 

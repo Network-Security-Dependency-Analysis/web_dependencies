@@ -212,8 +212,13 @@ def is_new_valid_internal_url(url, top_dict):
 
         # don't parse huge documents that aren't even webpages
         # TODO may have to add more extensions to this pending testing
-        ignore_extensions = (".pdf", ".pptx", ".xlsx", ".ics", "javascript:;/")
-        if not url.endswith(ignore_extensions) and "tel:" not in url:
+        ignore_extensions = (".pptx", ".xlsx", ".ics", ".aspx", ".docx")
+        ignore_substrings = (".pdf", "tel:", "javascript:", "mailto:")
+
+        if url.endswith(ignore_extensions) or wms.contains_any_substring(url, ignore_substrings):
+            globals.TOP_LOGS[top_dict["top_url"]]["error_urls"].add(url)
+            return False
+        else:
             return True
 
     else:
