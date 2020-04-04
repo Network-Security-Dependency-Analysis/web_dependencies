@@ -1,7 +1,9 @@
 import dns.resolver
 import whois
-from geoip import geolite2
+import geoip2.database
 from urllib.parse import urlparse
+
+GEO_CLIENT = geoip2.database.Reader('geoip2_database/GeoLite2-City.mmdb')
 
 # TODO verify that we have all the external source types we care about
 HTML_ELEMENTS = {
@@ -16,22 +18,17 @@ HTML_ELEMENTS = {
     "object": "data"
 }
 
-# ==================================================================================================
-# WWW screws up our parser, so get rid of it if a URL contains it
-
-def remove_www(url):
-    return url.replace("www.", "")
-
 
 # ==================================================================================================
-def url_to_domain(url):
-    domain = urlparse(url).netloc
-    remove_substrings = ["https://", "http://"]
+# Get domain name from url
 
-    for sub in remove_substrings:
-        domain = domain.replace(sub, "")
+def get_domain_name(url):
+    parsed_url = cleanup_url(url)
 
-    return domain
+    if parsed_url.startswith("http"):
+        parsed_url = urlparse(parsed_url).netloc
+
+    return parsed_url
 
 
 # ==================================================================================================
@@ -47,6 +44,13 @@ def is_valid_relative_resource(resource_url):
         return False
 
     return not bool(urlparse(resource_url).netloc)
+
+
+# ==================================================================================================
+# WWW screws up our parser, so get rid of it if a URL contains it
+
+def remove_www(url):
+    return url.replace("www.", "")
 
 
 # ==================================================================================================
@@ -82,41 +86,39 @@ def cleanup_url(url):
 # Get latitude and longitude of a given IP address
 
 def get_lat_long_of_ip(ip_address):
-    geo_ip_data = geolite2.lookup(ip_address)
+    geo_ip_data = GEO_CLIENT.city(ip_address)
 
     if geo_ip_data:
         try:
-            location = geo_ip_data.location
-            return location[0], location[1]
-        except:
-            pass
-    return None, None    
+            lat = geo_ip_data.location.latitude
+            long = geo_ip_data.location.latitude
+            return lat, long
+        except Exception as e:
+            print("ERROR (GEOIP): " + str(e))
+
+    return None, None
 
 
 # ==================================================================================================
-# Get domain name from url
+# Get the registrar for the given domain
 
-def get_domain_name(url):
-    parsed_url = cleanup_url(url)
-    if parsed_url.startswith("http"):
-        parsed_url = urlparse(parsed_url).netloc
-
-    return parsed_url
-
-# ==================================================================================================
-# Get the provider name of the given url
-
-def get_domain_provider(url):
+def get_domain_registrar(url):
     domain = get_domain_name(url)
+
     # Get domain information with whois
-    try:
-        domain_info = whois.query(domain)
-        if domain_info:
-            if domain_info.registrar:
-                return domain_info.registrar
+    if domain:
+        try:
+            domain_info = whois.query(domain)
+            if domain_info:
+                if domain_info.registrar:
+                    return domain_info.registrar
+            return None
+        except Exception as e:
+            print("ERROR (WHOIS): Could not get registrar for " + domain)
+            return None
+    else:
         return None
-    except:
-        return None
+
 
 # ==================================================================================================
 # Get IPv4 addresses from url
@@ -124,10 +126,12 @@ def get_domain_provider(url):
 def get_ip_4_addresses(url):
     ip_addresses = []
     domain_name = get_domain_name(url)
-    try:
-        for answer in dns.resolver.query(domain_name, 'A'):
-            ip_addresses.append(str(answer))
-    except:
-        pass
+
+    if domain_name:
+        try:
+            for answer in dns.resolver.query(domain_name, 'A'):
+                ip_addresses.append(str(answer))
+        except Exception as e:
+            print("ERROR (DNS): " + str(e))
 
     return ip_addresses

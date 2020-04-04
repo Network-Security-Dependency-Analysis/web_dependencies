@@ -9,7 +9,9 @@ import os
 import hashlib
 import ssl
 import argparse
-import web_monster_support
+
+import web_monster_support as wms
+import web_monster_domain as wmd
 
 # URL / HTML Parsing Imports
 from urllib.error import HTTPError
@@ -23,6 +25,7 @@ from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
 
 TOP_URLS = {}
+TOP_LOGS = {}
 
 # ==================================================================================================
 # Takes in an input file path, where the input file is a list of newline separated top level URLs
@@ -37,12 +40,23 @@ def parse_input(input_file):
     for url in top_urls:
         # check that URL is not an empty string
         if url:
-            url = web_monster_support.cleanup_url(url)
-            domain = web_monster_support.url_to_domain(url)
-            top_url_dict = {"top_url": url, "top_domain": domain, "external_resources": {},
-                            "external_domains": {}, "internal_urls": set(), "error_urls": set()}
+            url = wms.cleanup_url(url)
+            domain = wms.get_domain_name(url)
+
+            top_url_dict = {
+                "top_url": url,
+                "top_domain": domain,
+                "external_domains": {},
+                "external_resources": {}
+            }
+
+            top_log_dict = {
+                "internal_urls": set(),
+                "error_urls": set()
+            }
 
             TOP_URLS[url] = top_url_dict
+            TOP_LOGS[url] = top_log_dict
 
 
 # ==================================================================================================
@@ -54,11 +68,6 @@ def output_to_json(output_directory, url):
     hex_dig = hash_object.hexdigest()
 
     json_file = os.path.join(output_directory, str(hex_dig) + ".json")
-
-    # don't output the internal URLs and error URLs as they no longer serve a purpose, plus JSON
-    # doesn't like Python sets (it yells)
-    del TOP_URLS[url]["internal_urls"]
-    del TOP_URLS[url]["error_urls"]
 
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
@@ -101,10 +110,10 @@ def is_valid_external_resource(url, resource_url):
         return False
 
     # Get base URL of top level URL
-    top_url_base = web_monster_support.remove_www(urlparse(url).netloc)
+    top_url_base = wms.remove_www(urlparse(url).netloc)
 
     # Get base URL of resource URL
-    resource_url_base = web_monster_support.remove_www(urlparse(resource_url).netloc)
+    resource_url_base = wms.remove_www(urlparse(resource_url).netloc)
 
     # Check if base URLs match
     if top_url_base == resource_url_base:
@@ -132,37 +141,46 @@ def append_external_resource(top_dict, resource_url, resource_type):
 
 # ==================================================================================================
 def append_external_domain(top_dict, resource_url, resource_type):
-    domain = web_monster_support.url_to_domain(resource_url)
+    domain = wms.get_domain_name(resource_url)
 
     domain_dict = top_dict["external_domains"].get(domain, None)
 
     # case where we've seen this domain before
     if domain_dict is not None:
-        top_dict["external_domains"][domain]["total"] += 1
-        top_dict["external_domains"][domain][resource_type] += 1
+        top_dict["external_domains"][domain]["resources"]["total"] += 1
+        top_dict["external_domains"][domain]["resources"][resource_type] += 1
 
+    # case where we've never seen this domain
     else:
-        domain_count_dict = {"total": 1}
-        for tagType in web_monster_support.HTML_ELEMENTS.keys():
-            domain_count_dict[tagType] = 0
+        top_dict["external_domains"][domain] = {}
+        # ------------------------------------------------------------------------------------------
+        # Create Registrar
 
-        domain_count_dict[resource_type] = 1
+        # top_dict["external_domains"][domain]["registrar"] = wms.get_domain_registrar(domain)
+        # ------------------------------------------------------------------------------------------
+        # Create the resources count dict
 
-        # Initialize ip_addresses
-        domain_count_dict["ip_addresses"] = {}
-        # Get IPv4 addresses
-        ip_4_addresses = web_monster_support.get_ip_4_addresses(domain)
+        resources_count_dict = {"total": 1}
+        for tagType in wms.HTML_ELEMENTS.keys():
+            resources_count_dict[tagType] = 0
+
+        resources_count_dict[resource_type] = 1
+
+        top_dict["external_domains"][domain]["resources"] = resources_count_dict
+        # ------------------------------------------------------------------------------------------
+        # Set the IPv4 address info
+
+        ip_4_addresses = wms.get_ip_4_addresses(domain)
+
+        top_dict["external_domains"][domain]["ip_addresses"] = {}
         for ip_address in ip_4_addresses:
             # Get latitude and longitude by IP address
-            lat, long = web_monster_support.get_lat_long_of_ip(ip_address)
+            lat, long = wms.get_lat_long_of_ip(ip_address)
 
-            domain_count_dict["ip_addresses"][ip_address] = {
+            top_dict["external_domains"][domain]["ip_addresses"][ip_address] = {
                 "lat": lat,
                 "long": long,
-                "provider": web_monster_support.get_domain_provider(domain)
             }
-
-        top_dict["external_domains"][domain] = domain_count_dict
 
 
 # ==================================================================================================
@@ -188,7 +206,7 @@ def dont_traverse_higher_urls(resource_url, top_dict):
 def parse_resources(tag, attr, soup, top_dict, current_url):
     for t in soup.findAll(tag):
         try:
-            resource_url = web_monster_support.cleanup_url(t[attr])
+            resource_url = wms.cleanup_url(t[attr])
             # --------------------------------------------------------------------------------------
             # External Resource (add to dictionary of external URLs)
             if is_valid_external_resource(top_dict["top_url"], resource_url):
@@ -203,7 +221,7 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
                     dont_traverse_higher_urls(resource_url, top_dict)
 
                 # Partial URL
-                if web_monster_support.is_valid_relative_resource(resource_url):
+                if wms.is_valid_relative_resource(resource_url):
                     # handle absolute path by combining with top_url
                     if resource_url[0] == '/':
                         resource_url = top_dict["top_url"] + resource_url[1:]
@@ -217,10 +235,13 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
         except KeyError:
             pass
 
+
 # ==================================================================================================
 def is_new_valid_internal_url(url, top_dict):
     # don't parse things we've already seen before
-    if url not in top_dict["internal_urls"] and url not in top_dict["error_urls"]:
+    if url not in TOP_LOGS[top_dict["top_url"]]["internal_urls"] and url not in \
+            TOP_LOGS[top_dict["top_url"]]["error_urls"]:
+
         # don't parse huge documents that aren't even webpages
         # TODO may have to add more extensions to this pending testing
         ignore_extensions = (".pdf", ".pptx", ".xlsx", ".ics", "javascript:;/")
@@ -230,41 +251,43 @@ def is_new_valid_internal_url(url, top_dict):
     else:
         return False
 
+
 # ==================================================================================================
 def get_links(soup, top_dict, current_url):
-    for tagType in web_monster_support.HTML_ELEMENTS.keys():
-        parse_resources(tagType, web_monster_support.HTML_ELEMENTS[tagType], soup, top_dict, current_url)
+    for tagType in wms.HTML_ELEMENTS.keys():
+        parse_resources(tagType, wms.HTML_ELEMENTS[tagType], soup, top_dict, current_url)
+
 
 # ==================================================================================================
 def analyze_url(url, top_dict):
-    if len(top_dict["internal_urls"]) >= 175:
+    if len(TOP_LOGS[top_dict["top_url"]]["internal_urls"]) >= 175:
         return
-    
-    url = web_monster_support.cleanup_url(url)
+
+    url = wms.cleanup_url(url)
 
     if is_new_valid_internal_url(url, top_dict):
         actual_url, page_source = get_webpage_source(url)
 
         if actual_url and page_source:
             # --------------------------------------------------------------------------------------
-            actual_url = web_monster_support.cleanup_url(actual_url)
+            actual_url = wms.cleanup_url(actual_url)
             # Handle rare case where URL re-directed
             # TODO probably split this out into handle_redirect function and add link to external
             #  dict if it is actually external
             if url != actual_url:
                 if not is_new_valid_internal_url(actual_url, top_dict) or \
                         is_valid_external_resource(actual_url, top_dict["top_url"]):
-                    top_dict["error_urls"].add(url)
+                    TOP_LOGS[top_dict["top_url"]]["error_urls"].add(url)
                     return
 
                 url = actual_url
             # --------------------------------------------------------------------------------------
             print("New Internal URL: " + url)
-            top_dict["internal_urls"].add(url)
+            TOP_LOGS[top_dict["top_url"]]["internal_urls"].add(url)
             soup = BeautifulSoup(page_source, "lxml")
             get_links(soup, top_dict, url)
         else:
-            top_dict["error_urls"].add(url)
+            TOP_LOGS[top_dict["top_url"]]["error_urls"].add(url)
 
     return url
 
@@ -273,22 +296,29 @@ def analyze_url(url, top_dict):
 def thread_start(url, top_dict, output_dir):
 
     # Get IPv4 addresses
-    ip_4_addresses = web_monster_support.get_ip_4_addresses(url)
+    ip_4_addresses = wms.get_ip_4_addresses(url)
+
+    # Get registrar
+    # top_dict["registrar"]: wms.get_domain_registrar(url)
 
     # Initialize ip_addresses
     top_dict["ip_addresses"] = {}
     for ip_address in ip_4_addresses:
         # Get latitude and longitude by IP address
-        lat, long = web_monster_support.get_lat_long_of_ip(ip_address)
+        lat, long = wms.get_lat_long_of_ip(ip_address)
         top_dict["ip_addresses"][ip_address] = {
             "lat": lat,
             "long": long,
-            "provider": web_monster_support.get_domain_provider(url)
         }
 
     u = analyze_url(url, top_dict)
     output_to_json(output_dir, u)
-    # TODO: Remove data from the dict as we finish. This probably requires locking TOP_URLS.
+
+    # DELETE STUFF TO FREE MEMORY
+    del top_dict["external_domains"]
+    del top_dict["external_resources"]
+    del TOP_LOGS[top_dict["top_url"]]["internal_urls"]
+    del TOP_LOGS[top_dict["top_url"]]["error_urls"]
     print("WEBSITE " + u + " THREAD DONE")
 
 
@@ -310,5 +340,10 @@ if __name__ == "__main__":
     # wait for threads to finish
     for f in futures.as_completed(threads):
         pass
-
+    '''
+    # FOR TESTING PURPOSES ONLY
+    for top_url in TOP_URLS.keys():
+        print("ANALYZING WEBSITE: " + top_url)
+        thread_start(top_url, TOP_URLS[top_url], args.output_dir)
+    '''
     print("CRAWL COMPLETE!")
