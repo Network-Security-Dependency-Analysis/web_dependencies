@@ -26,7 +26,6 @@ from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
 
 globals.init()
-wmi.setup_ipinfo()
 
 
 # ==================================================================================================
