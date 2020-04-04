@@ -89,7 +89,8 @@ def get_webpage_source(url):
 # Returns true if the resource comes from an external location, false otherwise
 
 def is_valid_external_resource(url, resource_url):
-    if "http" not in resource_url:
+    # avoid wacky URLs that start with things like mailto: or /media/
+    if not resource_url.startswith("http"):
         return False
 
     # Get base URL of top level URL
@@ -175,6 +176,7 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
     for t in soup.findAll(tag):
         try:
             resource_url = wms.cleanup_url(t[attr])
+
             # --------------------------------------------------------------------------------------
             # External Resource (add to dictionary of external URLs)
             if is_valid_external_resource(top_dict["top_url"], resource_url):
@@ -210,12 +212,7 @@ def is_new_valid_internal_url(url, top_dict):
     if url not in globals.TOP_LOGS[top_dict["top_url"]]["internal_urls"] and url not in \
             globals.TOP_LOGS[top_dict["top_url"]]["error_urls"]:
 
-        # don't parse huge documents that aren't even webpages
-        # TODO may have to add more extensions to this pending testing
-        ignore_extensions = (".pptx", ".xlsx", ".ics", ".aspx", ".docx")
-        ignore_substrings = (".pdf", "tel:", "javascript:", "mailto:")
-
-        if url.endswith(ignore_extensions) or wms.contains_any_substring(url, ignore_substrings):
+        if not wms.valid_ending(url) or wms.contains_invalid_substring(url):
             globals.TOP_LOGS[top_dict["top_url"]]["error_urls"].add(url)
             return False
         else:
@@ -291,7 +288,7 @@ def thread_start(url, top_dict, output_dir):
 # ==================================================================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Crawl webpages for 3rd party links.")
-    parser.add_argument("-i", dest="input_file", type=str, help="File containing list of top-level domains to scan", default="./input.txt")
+    parser.add_argument("-i", dest="input_file", type=str, help="File containing list of top-level domains to scan", default="./cmu_input.txt")
     parser.add_argument("-o", dest="output_dir", type=str, help="Directory to output JSON results", default="./data/")
     args = parser.parse_args()
 

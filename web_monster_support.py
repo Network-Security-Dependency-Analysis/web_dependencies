@@ -117,10 +117,34 @@ def is_valid_relative_resource(resource_url):
 # ==================================================================================================
 # Check for substrings... returns true if any ONE of them are in the string
 
-def contains_any_substring(base_string, substrings):
-    for substring in substrings:
-        if substring in base_string:
+def valid_ending(url):
+    valid_extensions = (".htm", ".html", ".js", ".php")
+
+    url_chunks = url.split("/")
+    url_chunks = [i for i in url_chunks if i]
+    last_chunk = url_chunks[-1].lower()
+
+    if len(url_chunks) > 2 and "." in last_chunk:
+        if last_chunk.endswith(valid_extensions):
+            return True
+        else:
+            print("INVALID INTERNAL URL: " + url)
+    else:
+        return True
+
+
+# ==================================================================================================
+# Check for substrings... returns true if any ONE of them are in the string
+
+def contains_invalid_substring(url):
+    ignore_substrings = (".pdf", "tel:", "javascript:", "mailto:")
+
+    for substring in ignore_substrings:
+        if substring in url.lower():
             return True
 
     else:
         return False
+
+
+# ==================================================================================================
