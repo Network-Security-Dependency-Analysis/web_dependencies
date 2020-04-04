@@ -1,9 +1,5 @@
-import dns.resolver
-import whois
-import geoip2.database
 from urllib.parse import urlparse
-
-GEO_CLIENT = geoip2.database.Reader('geoip2_database/GeoLite2-City.mmdb')
+import globals
 
 # TODO verify that we have all the external source types we care about
 HTML_ELEMENTS = {
@@ -22,28 +18,13 @@ HTML_ELEMENTS = {
 # ==================================================================================================
 # Get domain name from url
 
-def get_domain_name(url):
+def url_to_domain(url):
     parsed_url = cleanup_url(url)
 
     if parsed_url.startswith("http"):
         parsed_url = urlparse(parsed_url).netloc
 
     return parsed_url
-
-
-# ==================================================================================================
-# Returns true if the resource URL is a valid relative URL, false otherwise
-
-def is_valid_relative_resource(resource_url):
-    # avoid traversing backwards (inefficient) or trying to parse email links (breaks stuff)
-    if ".." in resource_url or "mailto" in resource_url:
-        return False
-
-    # avoid weird symbols like # that just go back to the site's homepage
-    if len(resource_url) < 2:
-        return False
-
-    return not bool(urlparse(resource_url).netloc)
 
 
 # ==================================================================================================
@@ -83,55 +64,53 @@ def cleanup_url(url):
 
 
 # ==================================================================================================
-# Get latitude and longitude of a given IP address
+# Gets the global dictionaries ready for use
 
-def get_lat_long_of_ip(ip_address):
-    geo_ip_data = GEO_CLIENT.city(ip_address)
+def initialize_dicts(top_urls):
+    for url in top_urls:
+        if url:
+            url = cleanup_url(url)
+            domain = url_to_domain(url)
 
-    if geo_ip_data:
-        try:
-            lat = geo_ip_data.location.latitude
-            long = geo_ip_data.location.latitude
-            return lat, long
-        except Exception as e:
-            print("ERROR (GEOIP): " + str(e))
+            top_url_dict = {
+                "top_url": url,
+                "top_domain": domain,
+                "external_domains": {},
+                "external_resources": {}
+            }
 
-    return None, None
+            top_log_dict = {
+                "internal_urls": set(),
+                "error_urls": set()
+            }
 
-
-# ==================================================================================================
-# Get the registrar for the given domain
-
-def get_domain_registrar(url):
-    domain = get_domain_name(url)
-
-    # Get domain information with whois
-    if domain:
-        try:
-            domain_info = whois.query(domain)
-            if domain_info:
-                if domain_info.registrar:
-                    return domain_info.registrar
-            return None
-        except Exception as e:
-            print("ERROR (WHOIS): Could not get registrar for " + domain)
-            return None
-    else:
-        return None
+            globals.TOP_URLS[url] = top_url_dict
+            globals.TOP_LOGS[url] = top_log_dict
 
 
 # ==================================================================================================
-# Get IPv4 addresses from url
+# Delete data to free up memory
 
-def get_ip_4_addresses(url):
-    ip_addresses = []
-    domain_name = get_domain_name(url)
+def free_up_memory(top_dict):
+    del top_dict["external_domains"]
+    del top_dict["external_resources"]
+    del globals.TOP_LOGS[top_dict["top_url"]]["internal_urls"]
+    del globals.TOP_LOGS[top_dict["top_url"]]["error_urls"]
 
-    if domain_name:
-        try:
-            for answer in dns.resolver.query(domain_name, 'A'):
-                ip_addresses.append(str(answer))
-        except Exception as e:
-            print("ERROR (DNS): " + str(e))
 
-    return ip_addresses
+# ==================================================================================================
+# Returns true if the resource URL is a valid relative URL, false otherwise
+
+def is_valid_relative_resource(resource_url):
+    # avoid traversing backwards (inefficient) or trying to parse email links (breaks stuff)
+    if ".." in resource_url or "mailto" in resource_url:
+        return False
+
+    # avoid weird symbols like # that just go back to the site's homepage
+    if len(resource_url) < 2:
+        return False
+
+    return not bool(urlparse(resource_url).netloc)
+
+
+# ==================================================================================================

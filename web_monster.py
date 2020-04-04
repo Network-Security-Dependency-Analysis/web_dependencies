@@ -10,8 +10,9 @@ import hashlib
 import ssl
 import argparse
 
+import globals
 import web_monster_support as wms
-import web_monster_domain as wmd
+import web_monster_ip as wmi
 
 # URL / HTML Parsing Imports
 from urllib.error import HTTPError
@@ -24,8 +25,9 @@ from http.client import InvalidURL
 from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
 
-TOP_URLS = {}
-TOP_LOGS = {}
+globals.init()
+wmi.setup_ipinfo()
+
 
 # ==================================================================================================
 # Takes in an input file path, where the input file is a list of newline separated top level URLs
@@ -37,26 +39,8 @@ def parse_input(input_file):
 
     # get rid of newlines, etc
     top_urls = [x.strip() for x in top_urls]
-    for url in top_urls:
-        # check that URL is not an empty string
-        if url:
-            url = wms.cleanup_url(url)
-            domain = wms.get_domain_name(url)
 
-            top_url_dict = {
-                "top_url": url,
-                "top_domain": domain,
-                "external_domains": {},
-                "external_resources": {}
-            }
-
-            top_log_dict = {
-                "internal_urls": set(),
-                "error_urls": set()
-            }
-
-            TOP_URLS[url] = top_url_dict
-            TOP_LOGS[url] = top_log_dict
+    wms.initialize_dicts(top_urls)
 
 
 # ==================================================================================================
@@ -64,7 +48,7 @@ def parse_input(input_file):
 
 def output_to_json(output_directory, url):
     # make filename hash of the top url because linux doesn't like :./ in the file name
-    hash_object = hashlib.sha1(str.encode(TOP_URLS[url]["top_url"]))
+    hash_object = hashlib.sha1(str.encode(globals.TOP_URLS[url]["top_url"]))
     hex_dig = hash_object.hexdigest()
 
     json_file = os.path.join(output_directory, str(hex_dig) + ".json")
@@ -73,7 +57,7 @@ def output_to_json(output_directory, url):
         os.makedirs(output_directory)
 
     with open(json_file, 'w') as fp:
-        json.dump(TOP_URLS[url], fp)
+        json.dump(globals.TOP_URLS[url], fp)
 
 
 # ==================================================================================================
@@ -95,7 +79,7 @@ def get_webpage_source(url):
         actual_url = page_source.geturl()
 
     except (HTTPError, InvalidURL) as e:
-        print("ERROR: " + str(e))
+        print("ERROR (URL): " + str(e))
         print("URL: " + url)
         return None, None
 
@@ -141,7 +125,7 @@ def append_external_resource(top_dict, resource_url, resource_type):
 
 # ==================================================================================================
 def append_external_domain(top_dict, resource_url, resource_type):
-    domain = wms.get_domain_name(resource_url)
+    domain = wms.url_to_domain(resource_url)
 
     domain_dict = top_dict["external_domains"].get(domain, None)
 
@@ -154,10 +138,6 @@ def append_external_domain(top_dict, resource_url, resource_type):
     else:
         top_dict["external_domains"][domain] = {}
         # ------------------------------------------------------------------------------------------
-        # Create Registrar
-
-        # top_dict["external_domains"][domain]["registrar"] = wms.get_domain_registrar(domain)
-        # ------------------------------------------------------------------------------------------
         # Create the resources count dict
 
         resources_count_dict = {"total": 1}
@@ -169,18 +149,7 @@ def append_external_domain(top_dict, resource_url, resource_type):
         top_dict["external_domains"][domain]["resources"] = resources_count_dict
         # ------------------------------------------------------------------------------------------
         # Set the IPv4 address info
-
-        ip_4_addresses = wms.get_ip_4_addresses(domain)
-
-        top_dict["external_domains"][domain]["ip_addresses"] = {}
-        for ip_address in ip_4_addresses:
-            # Get latitude and longitude by IP address
-            lat, long = wms.get_lat_long_of_ip(ip_address)
-
-            top_dict["external_domains"][domain]["ip_addresses"][ip_address] = {
-                "lat": lat,
-                "long": long,
-            }
+        wmi.set_ip4_info(domain, top_dict)
 
 
 # ==================================================================================================
@@ -239,8 +208,8 @@ def parse_resources(tag, attr, soup, top_dict, current_url):
 # ==================================================================================================
 def is_new_valid_internal_url(url, top_dict):
     # don't parse things we've already seen before
-    if url not in TOP_LOGS[top_dict["top_url"]]["internal_urls"] and url not in \
-            TOP_LOGS[top_dict["top_url"]]["error_urls"]:
+    if url not in globals.TOP_LOGS[top_dict["top_url"]]["internal_urls"] and url not in \
+            globals.TOP_LOGS[top_dict["top_url"]]["error_urls"]:
 
         # don't parse huge documents that aren't even webpages
         # TODO may have to add more extensions to this pending testing
@@ -260,7 +229,7 @@ def get_links(soup, top_dict, current_url):
 
 # ==================================================================================================
 def analyze_url(url, top_dict):
-    if len(TOP_LOGS[top_dict["top_url"]]["internal_urls"]) >= 175:
+    if len(globals.TOP_LOGS[top_dict["top_url"]]["internal_urls"]) >= 175:
         return
 
     url = wms.cleanup_url(url)
@@ -277,17 +246,17 @@ def analyze_url(url, top_dict):
             if url != actual_url:
                 if not is_new_valid_internal_url(actual_url, top_dict) or \
                         is_valid_external_resource(actual_url, top_dict["top_url"]):
-                    TOP_LOGS[top_dict["top_url"]]["error_urls"].add(url)
+                    globals.TOP_LOGS[top_dict["top_url"]]["error_urls"].add(url)
                     return
 
                 url = actual_url
             # --------------------------------------------------------------------------------------
-            print("New Internal URL: " + url)
-            TOP_LOGS[top_dict["top_url"]]["internal_urls"].add(url)
+            print("\tNew Internal URL: " + url)
+            globals.TOP_LOGS[top_dict["top_url"]]["internal_urls"].add(url)
             soup = BeautifulSoup(page_source, "lxml")
             get_links(soup, top_dict, url)
         else:
-            TOP_LOGS[top_dict["top_url"]]["error_urls"].add(url)
+            globals.TOP_LOGS[top_dict["top_url"]]["error_urls"].add(url)
 
     return url
 
@@ -296,16 +265,13 @@ def analyze_url(url, top_dict):
 def thread_start(url, top_dict, output_dir):
 
     # Get IPv4 addresses
-    ip_4_addresses = wms.get_ip_4_addresses(url)
-
-    # Get registrar
-    # top_dict["registrar"]: wms.get_domain_registrar(url)
+    ip_4_addresses = wmi.get_ip4_addrs(url)
 
     # Initialize ip_addresses
     top_dict["ip_addresses"] = {}
     for ip_address in ip_4_addresses:
         # Get latitude and longitude by IP address
-        lat, long = wms.get_lat_long_of_ip(ip_address)
+        lat, long = wmi.get_ip_geo(ip_address)
         top_dict["ip_addresses"][ip_address] = {
             "lat": lat,
             "long": long,
@@ -314,11 +280,7 @@ def thread_start(url, top_dict, output_dir):
     u = analyze_url(url, top_dict)
     output_to_json(output_dir, u)
 
-    # DELETE STUFF TO FREE MEMORY
-    del top_dict["external_domains"]
-    del top_dict["external_resources"]
-    del TOP_LOGS[top_dict["top_url"]]["internal_urls"]
-    del TOP_LOGS[top_dict["top_url"]]["error_urls"]
+    wms.free_up_memory(top_dict)
     print("WEBSITE " + u + " THREAD DONE")
 
 
@@ -333,17 +295,18 @@ if __name__ == "__main__":
 
     threads = []
     with ThreadPoolExecutor(max_workers=5) as executor:
-        for top_url in TOP_URLS.keys():
+        for top_url in globals.TOP_URLS.keys():
             print("ANALYZING WEBSITE: " + top_url)
-            threads.append(executor.submit(thread_start, top_url, TOP_URLS[top_url], args.output_dir))
+            threads.append(executor.submit(thread_start, top_url, globals.TOP_URLS[top_url],
+                                           args.output_dir))
 
     # wait for threads to finish
     for f in futures.as_completed(threads):
         pass
     '''
     # FOR TESTING PURPOSES ONLY
-    for top_url in TOP_URLS.keys():
+    for top_url in globals.TOP_URLS.keys():
         print("ANALYZING WEBSITE: " + top_url)
-        thread_start(top_url, TOP_URLS[top_url], args.output_dir)
+        thread_start(top_url, globals.TOP_URLS[top_url], args.output_dir)
     '''
     print("CRAWL COMPLETE!")
