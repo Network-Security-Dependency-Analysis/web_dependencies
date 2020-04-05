@@ -128,7 +128,7 @@ def valid_ending(url):
         if last_chunk.endswith(valid_extensions):
             return True
         else:
-            print("INVALID INTERNAL URL: " + url)
+            return False
     else:
         return True
 
