@@ -31,9 +31,11 @@ def evaluate_responses(responses):
                 if response['params']['response'].get('remoteIPAddress'):
                     ip_address = response['params']['response']['remoteIPAddress']
                     result[key]['IP'][ip_address] = {}
-                    # print(response['params']['response']['headers'])
+
                     if response['params']['response']['headers'].get('server'):
                         result[key]['IP'][ip_address]['server'] = response['params']['response']['headers']['server']
+                    elif response['params']['response']['headers'].get('Server'):
+                        result[key]['IP'][ip_address]['server'] = response['params']['response']['headers']['Server']
             
             # Add certificate information if available
             if response['params']['response'].get('securityDetails'):
@@ -68,7 +70,7 @@ chrome_driver = "/Users/ian/Documents/CMU/Spring2020/NetSec/Project/chromedriver
 
 driver = webdriver.Chrome(desired_capabilities=caps, options=chrome_options, executable_path=chrome_driver)
 
-driver.get("https://cnn.com")
+driver.get(" https://pittsburghpa.gov/")
 
 # https://stackoverflow.com/questions/52633697/selenium-python-how-to-capture-network-traffics-response
 def process_browser_log_entry(entry):
