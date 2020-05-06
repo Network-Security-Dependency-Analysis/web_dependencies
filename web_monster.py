@@ -148,6 +148,9 @@ def append_external_domain(top_dict, resource_url, resource_type):
 
         top_dict["external_domains"][domain]["resources"] = resources_count_dict
         # ------------------------------------------------------------------------------------------
+        # Set the authoritative NS info
+        wmi.set_auth_ns_info(domain, top_dict, None)
+
         # Set the IPv4 address info
         wmi.set_ip4_info(domain, top_dict)
 
