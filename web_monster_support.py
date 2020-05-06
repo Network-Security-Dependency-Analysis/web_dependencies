@@ -3,15 +3,15 @@ import globals
 
 # TODO verify that we have all the external source types we care about
 HTML_ELEMENTS = {
-    "a": "href",
-    "script": "src",
-    "link": "href",
-    "iframe": "src",
-    "video": "src",
-    "audio": "src",
-    "img": "src",
-    "embed": "src",
-    "object": "data"
+    "a": ["href"],
+    "script": ["src"],
+    "link": ["href"],
+    "iframe": ["src"],
+    "video": ["src"],
+    "audio": ["src"],
+    "img": ["src", "data-src"],
+    "embed": ["src"],
+    "object": ["data"]
 }
 
 
@@ -125,9 +125,11 @@ def valid_ending(url):
     last_chunk = url_chunks[-1].lower()
 
     if len(url_chunks) > 2 and "." in last_chunk:
-        if last_chunk.endswith(valid_extensions):
-            return True
+        for ext in valid_extensions:
+            if ext in last_chunk:
+                return True
         else:
+            print("IGNORE URL: " + url)
             return False
     else:
         return True

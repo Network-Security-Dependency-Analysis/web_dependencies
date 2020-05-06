@@ -225,7 +225,10 @@ def is_new_valid_internal_url(url, top_dict):
 # ==================================================================================================
 def get_links(soup, top_dict, current_url):
     for tagType in wms.HTML_ELEMENTS.keys():
-        parse_resources(tagType, wms.HTML_ELEMENTS[tagType], soup, top_dict, current_url)
+        urlFields = wms.HTML_ELEMENTS[tagType]
+
+        for urlField in urlFields:
+            parse_resources(tagType, urlField, soup, top_dict, current_url)
 
 
 # ==================================================================================================
