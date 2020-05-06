@@ -1,3 +1,9 @@
+'''
+REFERENCES:
+    https://stackoverflow.com/questions/4066614/how-can-i-find-the-authoritative-dns-server-for-a-domain-using-dnspython
+        -- get_auth_ns is largely based on the top answer to this stack overflow question
+'''
+
 import dns.resolver
 import web_monster_support as wms
 import globals
