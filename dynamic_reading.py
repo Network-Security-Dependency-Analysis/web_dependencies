@@ -105,7 +105,7 @@ def evaluate_responses(responses, domain, top_dict):
                 curr_dict['mimeType'][mimetype] = 1
             else:
                 curr_dict['mimeType'][mimetype] += 1
-        
+            
 def evaluate_requests(requests, orig_url, top_dict):
     """ Retrieve dependency information from requests """
 
@@ -124,11 +124,12 @@ def evaluate_requests(requests, orig_url, top_dict):
             dst = dst.split('//')[1].split('/')[0]
 
             # Add dependencies from third party dependencies
-            if src in top_dict:
-                if not 'dependencies' in top_dict[src]:
-                    top_dict[src]['dependencies'] = []
-                if not dst in top_dict[src]['dependencies']:
-                    top_dict[src]['dependencies'].append(dst)
+            if src in top_dict['external_domains']:
+
+                if not 'dependencies' in top_dict['external_domains'][src]:
+                    top_dict['external_domains'][src]['dependencies'] = []
+                if not dst in top_dict['external_domains'][src]['dependencies']:
+                    top_dict['external_domains'][src]['dependencies'].append(dst)
         else:
             continue
 
@@ -200,26 +201,26 @@ if __name__ == "__main__":
     driver = setup_driver(CHROME_DRIVER_PATH)
 
     parser = argparse.ArgumentParser(description="Crawl webpages for 3rd party links.")
-    parser.add_argument("-i", dest="input_file", type=str, help="File containing list of top-level domains to scan", default="./input_files/cmu_input.txt")
-    parser.add_argument("-o", dest="output_dir", type=str, help="Directory to output JSON results", default="./data/dynamic/")
+    parser.add_argument("-i", dest="input_file", type=str, help="File containing list of top-level domains to scan", default="./input_files/pittsburgh_input.txt")
+    parser.add_argument("-o", dest="output_dir", type=str, help="Directory to output JSON results", default="./data/dynamic-2/")
     args = parser.parse_args()
 
     parse_input(args.input_file)
 
     threads = []
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        for top_url in globals.TOP_URLS.keys():
-            print("ANALYZING WEBSITE: " + top_url)
-            threads.append(executor.submit(thread_start, top_url, globals.TOP_URLS[top_url],
-                                           args.output_dir))
+    # with ThreadPoolExecutor(max_workers=5) as executor:
+    #     for top_url in globals.TOP_URLS.keys():
+    #         print("ANALYZING WEBSITE: " + top_url)
+    #         threads.append(executor.submit(thread_start, top_url, globals.TOP_URLS[top_url],
+    #                                        args.output_dir))
 
-    # wait for threads to finish
-    for f in futures.as_completed(threads):
-        pass
-    '''
+    # # wait for threads to finish
+    # for f in futures.as_completed(threads):
+    #     pass
+    # '''
     # FOR TESTING PURPOSES ONLY
     for top_url in globals.TOP_URLS.keys():
         print("ANALYZING WEBSITE: " + top_url)
         thread_start(top_url, globals.TOP_URLS[top_url], args.output_dir)
-    '''
+    # '''
     print("CRAWL COMPLETE!")
