@@ -9,7 +9,7 @@ import os
 import hashlib
 import ssl
 import argparse
-
+import random
 import globals
 import web_monster_support as wms
 import web_monster_ip as wmi
@@ -73,8 +73,11 @@ def get_webpage_source(url):
         ctx_no_secure.check_hostname = False
         ctx_no_secure.verify_mode = ssl.CERT_NONE
         # ------------------------------------------------------------------------------------------
+        user_agent = random.choice(globals.USR_AGNTS)
+        headers = {'User-Agent': user_agent}
 
-        page_source = urllib.request.urlopen(url, context=ctx_no_secure)
+        request = urllib.request.Request(url, headers={'User-Agent': user_agent})
+        page_source = urllib.request.urlopen(request, context=ctx_no_secure)
         actual_url = page_source.geturl()
 
     except (HTTPError, InvalidURL) as e:
@@ -149,10 +152,10 @@ def append_external_domain(top_dict, resource_url, resource_type):
         top_dict["external_domains"][domain]["resources"] = resources_count_dict
         # ------------------------------------------------------------------------------------------
         # Set the authoritative NS info
-        wmi.set_auth_ns_info(domain, top_dict, None)
+        ns_dict = wmi.set_auth_ns_info(domain, top_dict, None)
 
         # Set the IPv4 address info
-        wmi.set_ip4_info(domain, top_dict)
+        wmi.set_ip4_info(domain, top_dict, ns_dict)
 
 
 # ==================================================================================================
@@ -272,7 +275,7 @@ def analyze_url(url, top_dict):
 def thread_start(url, top_dict, output_dir):
 
     # Get IPv4 addresses
-    ip_4_addresses = wmi.get_ip4_addrs(url)
+    ip_4_addresses = wmi.get_ip4_addrs(url, None)
 
     # Initialize ip_addresses
     top_dict["ip_addresses"] = {}
@@ -310,6 +313,7 @@ if __name__ == "__main__":
     # wait for threads to finish
     for f in futures.as_completed(threads):
         pass
+
     '''
     # FOR TESTING PURPOSES ONLY
     for top_url in globals.TOP_URLS.keys():

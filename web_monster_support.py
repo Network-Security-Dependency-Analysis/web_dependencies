@@ -31,8 +31,9 @@ def url_to_domain(url):
 # WWW screws up our parser, so get rid of it if a URL contains it
 
 def remove_www(url):
-    return url.replace("www.", "")
-
+    url = url.replace("www.", "")
+    url = url.replace("www2.", "")
+    return url
 
 # ==================================================================================================
 # Required for URL matching and being able to append relative URLs

@@ -10,6 +10,7 @@ import globals
 import os
 import sys
 import json
+import random
 
 
 # ==================================================================================================
@@ -23,27 +24,37 @@ def log_dns(logfile, logstring):
 # Wrapper function meant to be called from the main web monster file
 
 def set_auth_ns_info(domain, top_dict, logfile):
-    ns_dict = bolster_auth_ns_data(get_auth_ns(domain, logfile))
+    try:
+        ns_dict = bolster_auth_ns_data(get_auth_ns(domain, logfile, 0))
+    except Exception as e:
+        print("ERROR (DNS-NS): " + str(e))
+        ns_dict = None
+
     top_dict["external_domains"][domain]["authoritative_name_servers"] = ns_dict
+    return ns_dict
 
 
 # ==================================================================================================
 # Recursively find the authoritative name servers for the specified domain. Debugging information is
 # written to the file at the path specified by logfile if it is not None
 
-def get_auth_ns(domain, logfile):
+def get_auth_ns(domain, logfile, level):
+    if level >= 5:
+        raise Exception("LEVEL FIVE HIT")
+
     try:
         dns_name = dns.name.from_text(domain)
+
         default = dns.resolver.get_default_resolver()
         default.timeout = 8
-        default.lifetime = 10
+        default.lifetime = 8
         nameserver = default.nameservers[0]
 
         log_dns(logfile, "DNS Name From Text = " + str(dns_name) + "\n")
         log_dns(logfile, "Default Nameserver = " + nameserver + "\n")
 
         query = dns.message.make_query(dns_name, dns.rdatatype.NS)
-        response = dns.query.udp(query, nameserver, timeout=10)
+        response = dns.query.udp(query, nameserver, timeout=8)
         rcode = response.rcode()
 
         if rcode == dns.rcode.NOERROR:
@@ -53,7 +64,7 @@ def get_auth_ns(domain, logfile):
                 resp = rrset.to_text().split()
                 new_domain = resp[0]
                 log_dns(logfile, "Parent Domain = " + new_domain + "\n")
-                return get_auth_ns(new_domain, logfile)
+                return get_auth_ns(new_domain, logfile, level+1)
 
             else:
                 rrset = response.answer[0]
@@ -73,6 +84,7 @@ def get_auth_ns(domain, logfile):
 
                 return nameservers
         else:
+            print(str(response.rcode()))
             return None
 
     except Exception as e:
@@ -106,14 +118,36 @@ def bolster_auth_ns_data(nameservers):
 # ==================================================================================================
 # Get IPv4 addresses from url
 
-def get_ip4_addrs(url):
+def get_ip4_addrs(url, nameservers):
     ip_addresses = []
     domain_name = wms.url_to_domain(url)
 
     if not domain_name.startswith("/"):
+
+        if nameservers:
+            try:
+                # try to query authoritative nameserver directly
+                resolvr = dns.resolver.Resolver()
+                resolvr.timeout = 8
+                resolvr.lifetime = 8
+
+                ns_key = random.choice(list(nameservers.keys()))
+                resolvr.nameservers = [nameservers.get(ns_key).get("ip")]
+                for answer in resolvr.query(domain_name, 'A'):
+                    ip_addresses.append(str(answer))
+
+                return ip_addresses
+            except Exception as e:
+                print("ERROR (DNS-NS): " + str(e))
+
         try:
-            for answer in dns.resolver.query(domain_name, 'A'):
+            default = dns.resolver.get_default_resolver()
+            default.timeout = 8
+            default.lifetime = 8
+            for answer in default.query(domain_name, 'A'):
                 ip_addresses.append(str(answer))
+
+            return ip_addresses
         except Exception as e:
             print("ERROR (DNS): " + str(e))
 
@@ -156,8 +190,8 @@ def get_ip_asn(ip_address):
 # ==================================================================================================
 # Set the location info and IP address info for a given IP in the dictionary
 
-def set_ip4_info(domain, top_dict):
-    ip_4_addresses = get_ip4_addrs(domain)
+def set_ip4_info(domain, top_dict, nameservers):
+    ip_4_addresses = get_ip4_addrs(domain, nameservers)
 
     top_dict["external_domains"][domain]["ip_addresses"] = {}
     for ip_address in ip_4_addresses:
@@ -186,6 +220,6 @@ if __name__ == "__main__":
     if os.path.exists(logFile):
         os.remove(logFile)
 
-    nameservers = get_auth_ns(sys.argv[1], logFile)
-    nameservers = bolster_auth_ns_data(nameservers)
-    print(json.dumps(nameservers))
+    ns = get_auth_ns(sys.argv[1], logFile, 0)
+    ns = bolster_auth_ns_data(ns)
+    print(json.dumps(ns))
